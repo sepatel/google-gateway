@@ -17,9 +17,9 @@ RUN apk add --no-cache ca-certificates tini \
 COPY --from=builder /gmail-gateway /usr/local/bin/gmail-gateway
 USER gateway
 VOLUME /data
-EXPOSE 8080
-ENV PORT=8080 \
-    DATA_DIR=/data \
+EXPOSE 47613
+ENV GMAIL_GATEWAY_PORT=47613 \
+    GMAIL_GATEWAY_DATA_DIR=/data \
     RUST_LOG=info
-HEALTHCHECK --interval=30s --timeout=3s CMD wget -qO- http://127.0.0.1:8080/healthz || exit 1
+HEALTHCHECK --interval=30s --timeout=3s CMD wget -qO- http://127.0.0.1:47613/healthz || exit 1
 ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/gmail-gateway"]

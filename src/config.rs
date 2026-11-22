@@ -35,26 +35,29 @@ impl AppConfig {
                 .with_context(|| format!("{name} must be set"))
         };
 
-        let public_url = Url::parse(required("PUBLIC_URL")?.trim_end_matches('/'))
-            .context("PUBLIC_URL must be an absolute URL")?;
+        let public_url = Url::parse(required("GMAIL_GATEWAY_PUBLIC_URL")?.trim_end_matches('/'))
+            .context("GMAIL_GATEWAY_PUBLIC_URL must be an absolute URL")?;
         if public_url.scheme() != "https" && public_url.host_str() != Some("localhost") {
-            bail!("PUBLIC_URL must use https (http is only accepted for localhost)");
+            bail!("GMAIL_GATEWAY_PUBLIC_URL must use https (http is only accepted for localhost)");
         }
 
-        let port = match lookup("PORT") {
-            Some(p) => p.parse().context("PORT must be a port number")?,
-            None => 8080,
+        let port = match lookup("GMAIL_GATEWAY_PORT") {
+            Some(p) => p
+                .parse()
+                .context("GMAIL_GATEWAY_PORT must be a port number")?,
+            None => 47613,
         };
 
         Ok(Self {
             google: GoogleClient {
-                client_id: required("GOOGLE_CLIENT_ID")?,
-                client_secret: required("GOOGLE_CLIENT_SECRET")?,
+                client_id: required("GMAIL_GATEWAY_GOOGLE_CLIENT_ID")?,
+                client_secret: required("GMAIL_GATEWAY_GOOGLE_CLIENT_SECRET")?,
             },
             public_url,
-            clients: parse_clients(&required("GATEWAY_CLIENTS")?)?,
-            encryption_key: parse_key(&required("GATEWAY_ENCRYPTION_KEY")?)?,
-            data_dir: lookup("DATA_DIR").map_or_else(|| PathBuf::from("/data"), PathBuf::from),
+            clients: parse_clients(&required("GMAIL_GATEWAY_CLIENTS")?)?,
+            encryption_key: parse_key(&required("GMAIL_GATEWAY_ENCRYPTION_KEY")?)?,
+            data_dir: lookup("GMAIL_GATEWAY_DATA_DIR")
+                .map_or_else(|| PathBuf::from("/data"), PathBuf::from),
             port,
         })
     }
@@ -75,21 +78,21 @@ fn parse_clients(raw: &str) -> Result<Vec<ClientToken>> {
         .map(|entry| {
             let (name, token) = entry
                 .split_once('=')
-                .with_context(|| "GATEWAY_CLIENTS entries must look like name=token")?;
+                .with_context(|| "GMAIL_GATEWAY_CLIENTS entries must look like name=token")?;
             let (name, token) = (name.trim(), token.trim());
             if name.is_empty() {
-                bail!("GATEWAY_CLIENTS has an entry with no name");
+                bail!("GMAIL_GATEWAY_CLIENTS has an entry with no name");
             }
             // Short tokens make a public endpoint guessable.
             if token.len() < 32 {
-                bail!("GATEWAY_CLIENTS token for {name} must be at least 32 characters");
+                bail!("GMAIL_GATEWAY_CLIENTS token for {name} must be at least 32 characters");
             }
             Ok(ClientToken::new(name, token))
         })
         .collect::<Result<Vec<_>>>()?;
 
     if clients.is_empty() {
-        bail!("GATEWAY_CLIENTS must name at least one client");
+        bail!("GMAIL_GATEWAY_CLIENTS must name at least one client");
     }
     Ok(clients)
 }
@@ -97,9 +100,11 @@ fn parse_clients(raw: &str) -> Result<Vec<ClientToken>> {
 fn parse_key(raw: &str) -> Result<[u8; 32]> {
     STANDARD
         .decode(raw.trim())
-        .context("GATEWAY_ENCRYPTION_KEY must be base64")?
+        .context("GMAIL_GATEWAY_ENCRYPTION_KEY must be base64")?
         .try_into()
-        .map_err(|_| anyhow::anyhow!("GATEWAY_ENCRYPTION_KEY must decode to exactly 32 bytes"))
+        .map_err(|_| {
+            anyhow::anyhow!("GMAIL_GATEWAY_ENCRYPTION_KEY must decode to exactly 32 bytes")
+        })
 }
 
 #[cfg(test)]
@@ -109,15 +114,15 @@ mod tests {
 
     fn env(overrides: &[(&str, &str)]) -> Result<AppConfig> {
         let mut vars: HashMap<String, String> = [
-            ("GOOGLE_CLIENT_ID", "id"),
-            ("GOOGLE_CLIENT_SECRET", "secret"),
-            ("PUBLIC_URL", "https://mail.example.com/"),
+            ("GMAIL_GATEWAY_GOOGLE_CLIENT_ID", "id"),
+            ("GMAIL_GATEWAY_GOOGLE_CLIENT_SECRET", "secret"),
+            ("GMAIL_GATEWAY_PUBLIC_URL", "https://mail.example.com/"),
             (
-                "GATEWAY_CLIENTS",
+                "GMAIL_GATEWAY_CLIENTS",
                 "opencode=0123456789abcdef0123456789abcdef",
             ),
             (
-                "GATEWAY_ENCRYPTION_KEY",
+                "GMAIL_GATEWAY_ENCRYPTION_KEY",
                 "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             ),
         ]
@@ -140,12 +145,12 @@ mod tests {
 
     #[test]
     fn rejects_plain_http_public_url_outside_localhost() {
-        assert!(env(&[("PUBLIC_URL", "http://mail.example.com")]).is_err());
-        assert!(env(&[("PUBLIC_URL", "http://localhost:8080")]).is_ok());
+        assert!(env(&[("GMAIL_GATEWAY_PUBLIC_URL", "http://mail.example.com")]).is_err());
+        assert!(env(&[("GMAIL_GATEWAY_PUBLIC_URL", "http://localhost:47613")]).is_ok());
     }
 
     #[test]
     fn rejects_short_client_tokens() {
-        assert!(env(&[("GATEWAY_CLIENTS", "opencode=short")]).is_err());
+        assert!(env(&[("GMAIL_GATEWAY_CLIENTS", "opencode=short")]).is_err());
     }
 }

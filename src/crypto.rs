@@ -44,7 +44,9 @@ impl Cipher {
             .aead
             .decrypt(Nonce::from_slice(nonce), ciphertext)
             .map_err(|_| {
-                anyhow::anyhow!("cannot decrypt stored secret (wrong GATEWAY_ENCRYPTION_KEY?)")
+                anyhow::anyhow!(
+                    "cannot decrypt stored secret (wrong GMAIL_GATEWAY_ENCRYPTION_KEY?)"
+                )
             })?;
         String::from_utf8(plaintext).context("decrypted secret is not UTF-8")
     }

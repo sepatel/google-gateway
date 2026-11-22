@@ -27,12 +27,12 @@ async fn harness() -> Harness {
     let config = AppConfig::from_lookup(|name| {
         Some(
             match name {
-                "GOOGLE_CLIENT_ID" => "client-id",
-                "GOOGLE_CLIENT_SECRET" => "client-secret",
-                "PUBLIC_URL" => "https://mail.example.com",
-                "GATEWAY_CLIENTS" => "opencode=opencode-token-0123456789abcdef0123",
-                "GATEWAY_ENCRYPTION_KEY" => "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
-                "DATA_DIR" => data_dir.as_str(),
+                "GMAIL_GATEWAY_GOOGLE_CLIENT_ID" => "client-id",
+                "GMAIL_GATEWAY_GOOGLE_CLIENT_SECRET" => "client-secret",
+                "GMAIL_GATEWAY_PUBLIC_URL" => "https://mail.example.com",
+                "GMAIL_GATEWAY_CLIENTS" => "opencode=opencode-token-0123456789abcdef0123",
+                "GMAIL_GATEWAY_ENCRYPTION_KEY" => "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+                "GMAIL_GATEWAY_DATA_DIR" => data_dir.as_str(),
                 _ => return None,
             }
             .to_string(),

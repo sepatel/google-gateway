@@ -19,7 +19,9 @@ keeps a refresh token per account, so nothing has to sign in again every hour or
 4. **Data Access**: add the scope `https://mail.google.com/` (full mailbox, including
    permanent delete).
 5. **Clients → Create client**: type **Web application**, authorized redirect URI
-   `https://<your-host>/oauth/google/callback`. Copy the client ID and secret.
+   `http://localhost:47613/oauth/google/callback` for local use, plus
+   `https://<your-host>/oauth/google/callback` once it runs on a server. Copy the client ID and
+   secret.
 
 For a Google Workspace account, if linking is blocked by policy, trust the client in
 **admin.google.com → Security → API controls → Manage third-party app access**, configuring
@@ -27,29 +29,34 @@ it by client ID.
 
 ## Configuration
 
-All settings come from the environment; see [`.env.example`](.env.example).
+Settings come from the environment, either exported in the shell or in a `.env` file next to
+`docker-compose.yml`; see [`.env.example`](.env.example).
 
 | Variable | Purpose |
 |---|---|
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | The Web application client. |
-| `PUBLIC_URL` | Public HTTPS address; the redirect URI is `${PUBLIC_URL}/oauth/google/callback`. |
-| `GATEWAY_CLIENTS` | `name=token` pairs, comma separated, one per caller. Tokens are at least 32 characters. |
-| `GATEWAY_ENCRYPTION_KEY` | 32 bytes, base64. Seals refresh tokens in `accounts.json`. Losing it means re-linking. |
-| `DATA_DIR` | Where `accounts.json` lives. Defaults to `/data`. |
-| `PORT` | Listen port. Defaults to `8080`. |
+| `GMAIL_GATEWAY_GOOGLE_CLIENT_ID`, `GMAIL_GATEWAY_GOOGLE_CLIENT_SECRET` | The Web application client. |
+| `GMAIL_GATEWAY_PUBLIC_URL` | Address the browser uses; the redirect URI is `${GMAIL_GATEWAY_PUBLIC_URL}/oauth/google/callback`. HTTPS, or `http://localhost:<port>`. Defaults to `http://localhost:47613` under compose. |
+| `GMAIL_GATEWAY_CLIENTS` | `name=token` pairs, comma separated, one per caller. Tokens are at least 32 characters. |
+| `GMAIL_GATEWAY_ENCRYPTION_KEY` | 32 bytes, base64. Seals refresh tokens in `accounts.json`. Losing it means re-linking. |
+| `GMAIL_GATEWAY_DATA_DIR` | Where `accounts.json` lives. Defaults to `/data`. |
+| `GMAIL_GATEWAY_PORT` | Listen port. Defaults to `47613`. |
 | `RUST_LOG` | Log filter. Defaults to `info`. |
 
 Generate tokens and the key with `openssl rand -base64 32`.
 
-## Running on the NAS
+## Running
 
 ```sh
-cp .env.example .env   # fill it in
 docker compose up -d --build
 ```
 
-The compose file binds the container to `127.0.0.1:8080`. Put your reverse proxy in front of
-it to terminate TLS on the public hostname; the gateway itself only speaks HTTP. Only
+The container listens on `127.0.0.1:47613` and keeps its data in `./data`.
+
+**Locally**, register `http://localhost:47613/oauth/google/callback` on the OAuth client and
+leave `GMAIL_GATEWAY_PUBLIC_URL` unset.
+
+**On a server**, set `GMAIL_GATEWAY_PUBLIC_URL` to the public HTTPS address, add its callback
+to the same OAuth client, and put a reverse proxy in front of port 47613 to terminate TLS. Only
 `/healthz` and the OAuth callback are reachable without a bearer token.
 
 ## Linking accounts
@@ -57,7 +64,7 @@ it to terminate TLS on the public hostname; the gateway itself only speaks HTTP.
 Ask the gateway for a Google sign-in URL, open it in a browser, and approve access:
 
 ```sh
-curl -s -X POST https://<your-host>/accounts/link \
+curl -s -X POST http://localhost:47613/accounts/link \
   -H "Authorization: Bearer $GMAIL_GATEWAY_TOKEN"
 ```
 
@@ -66,11 +73,13 @@ work). Linking an account again replaces its stored token, which is also how you
 whose authorization was revoked.
 
 ```sh
-curl -s https://<your-host>/accounts -H "Authorization: Bearer $GMAIL_GATEWAY_TOKEN"
-curl -s -X DELETE https://<your-host>/accounts/me@gmail.com -H "Authorization: Bearer $GMAIL_GATEWAY_TOKEN"
+curl -s http://localhost:47613/accounts -H "Authorization: Bearer $GMAIL_GATEWAY_TOKEN"
+curl -s -X DELETE http://localhost:47613/accounts/me@gmail.com -H "Authorization: Bearer $GMAIL_GATEWAY_TOKEN"
 ```
 
 ## OpenCode
+
+Use the server's public HTTPS URL in place of localhost once it runs there.
 
 ```jsonc
 {
@@ -78,7 +87,7 @@ curl -s -X DELETE https://<your-host>/accounts/me@gmail.com -H "Authorization: B
     "servers": {
       "gmail": {
         "type": "remote",
-        "url": "https://<your-host>/mcp",
+        "url": "http://localhost:47613/mcp",
         "oauth": false,
         "headers": { "Authorization": "Bearer {env:GMAIL_GATEWAY_TOKEN}" }
       }
