@@ -84,15 +84,23 @@ curl -s -X DELETE http://localhost:47613/accounts/me@gmail.com -H "Authorization
 
 ## OpenCode
 
-Use the server's public HTTPS URL in place of localhost once it runs there.
+Each linked account has its own endpoint, `/mcp/<email>`, exposing only that mailbox, so every
+account is a separate MCP server you can switch on and off. `/mcp` serves all accounts and adds
+the `list_accounts` and `link_account` tools.
 
 ```jsonc
 {
   "mcp": {
     "servers": {
-      "gmail": {
+      "gmail-work": {
         "type": "remote",
-        "url": "http://localhost:47613/mcp",
+        "url": "http://localhost:47613/mcp/me@work.example",
+        "oauth": false,
+        "headers": { "Authorization": "Bearer {env:GMAIL_GATEWAY_TOKEN}" }
+      },
+      "gmail-personal": {
+        "type": "remote",
+        "url": "http://localhost:47613/mcp/me@gmail.com",
         "oauth": false,
         "headers": { "Authorization": "Bearer {env:GMAIL_GATEWAY_TOKEN}" }
       }
@@ -101,18 +109,22 @@ Use the server's public HTTPS URL in place of localhost once it runs there.
 }
 ```
 
+Use the server's public HTTPS URL in place of localhost once it runs there. An endpoint for an
+account that is not linked answers 404, so the client shows it as failed.
+
 ## MCP tools
 
 | Tool | Purpose |
 |---|---|
-| `list_accounts` | Linked accounts. |
-| `link_account` | Returns a Google sign-in URL to link or re-link an account. |
+| `list_accounts` | Linked accounts. `/mcp` only. |
+| `link_account` | Returns a Google sign-in URL to link or re-link an account. `/mcp` only. |
 | `search_threads` | Gmail search syntax; returns subject, sender, date, snippet and unread state per thread. |
 | `get_thread` | Every message in a thread with plain-text bodies, oldest first. |
 | `get_message` | One message with its body and attachment list. |
 | `list_labels` | Labels and their IDs. |
 
-Every mail tool takes an optional `account`; it may be omitted while only one account is linked.
+On `/mcp`, every mail tool takes an optional `account`, which may be omitted while only one
+account is linked. Account endpoints fix the account and drop the argument.
 Message bodies are capped at 50,000 characters, and a thread at 100,000, dropping the oldest
 bodies first.
 

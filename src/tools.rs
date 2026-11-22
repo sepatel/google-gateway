@@ -22,7 +22,36 @@ impl From<GatewayError> for ToolError {
     }
 }
 
-pub fn descriptors() -> Value {
+/// Which accounts an MCP endpoint exposes.
+pub enum Scope {
+    All,
+    Account(String),
+}
+
+const ALL_SCOPE_ONLY: [&str; 2] = ["list_accounts", "link_account"];
+
+pub fn descriptors(scope: &Scope) -> Value {
+    let all = all_descriptors();
+    let Scope::Account(_) = scope else {
+        return all;
+    };
+    let tools = all
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|t| !ALL_SCOPE_ONLY.iter().any(|n| t["name"] == *n))
+        .cloned()
+        .map(|mut t| {
+            if let Some(props) = t["inputSchema"]["properties"].as_object_mut() {
+                props.remove("account");
+            }
+            t
+        })
+        .collect();
+    Value::Array(tools)
+}
+
+fn all_descriptors() -> Value {
     let account = json!({
         "type": "string",
         "description": "Linked account email. Optional when exactly one account is linked."
@@ -93,9 +122,26 @@ pub fn descriptors() -> Value {
 pub async fn call(
     state: &AppState,
     client: &str,
+    scope: &Scope,
     name: &str,
-    args: Value,
+    mut args: Value,
 ) -> Result<Value, ToolError> {
+    if let Scope::Account(email) = scope {
+        if ALL_SCOPE_ONLY.contains(&name) {
+            return Err(ToolError::UnknownTool(name.to_string()));
+        }
+        let Some(fields) = args.as_object_mut() else {
+            return Err(GatewayError::BadRequest("arguments must be an object".into()).into());
+        };
+        if let Some(requested) = fields.get("account").and_then(Value::as_str)
+            && !requested.eq_ignore_ascii_case(email)
+        {
+            return Err(
+                GatewayError::BadRequest(format!("this endpoint only serves {email}")).into(),
+            );
+        }
+        fields.insert("account".into(), json!(email));
+    }
     let result = match name {
         "list_accounts" => Ok(json!({ "accounts": state.store.list().await })),
         "link_account" => linking::start(state, client).await,

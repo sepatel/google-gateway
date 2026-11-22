@@ -68,7 +68,11 @@ pub fn router(state: Arc<AppState>) -> Router {
     let protected = Router::new()
         .route(
             "/mcp",
-            post(mcp::handle_post).get(|| async { StatusCode::METHOD_NOT_ALLOWED }),
+            post(mcp::handle_all).get(|| async { StatusCode::METHOD_NOT_ALLOWED }),
+        )
+        .route(
+            "/mcp/{account}",
+            post(mcp::handle_account).get(|| async { StatusCode::METHOD_NOT_ALLOWED }),
         )
         .route("/accounts", get(list_accounts))
         .route("/accounts/link", post(start_link))

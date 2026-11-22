@@ -69,14 +69,22 @@ fn authed(method: &str, uri: &str, body: Option<Value>) -> Request<Body> {
         .unwrap()
 }
 
-async fn call_tool(app: &Router, name: &str, arguments: Value) -> Value {
-    let request = json!({
-        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-        "params": { "name": name, "arguments": arguments },
-    });
-    let (status, body) = send(app, authed("POST", "/mcp", Some(request))).await;
+async fn rpc(app: &Router, endpoint: &str, method: &str, params: Value) -> Value {
+    let request = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params });
+    let (status, body) = send(app, authed("POST", endpoint, Some(request))).await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    serde_json::from_str::<Value>(&body).unwrap()["result"].clone()
+    serde_json::from_str::<Value>(&body).unwrap()
+}
+
+async fn call_tool(app: &Router, name: &str, arguments: Value) -> Value {
+    rpc(
+        app,
+        "/mcp",
+        "tools/call",
+        json!({ "name": name, "arguments": arguments }),
+    )
+    .await["result"]
+        .clone()
 }
 
 async fn link(h: &Harness, email: &str) {
@@ -241,4 +249,40 @@ async fn refuses_ids_that_would_change_the_gmail_request_path() {
             .unwrap()
             .contains("not a Gmail ID")
     );
+}
+
+#[tokio::test]
+async fn an_account_endpoint_only_reaches_its_own_account() {
+    let h = harness().await;
+    link(&h, "work@example.com").await;
+    link(&h, "me@gmail.com").await;
+
+    let tools = rpc(&h.app, "/mcp/work@example.com", "tools/list", json!({})).await;
+    let tools = tools["result"]["tools"].as_array().unwrap();
+    assert!(tools.iter().all(|t| t["name"] != "link_account"));
+    assert!(
+        tools
+            .iter()
+            .all(|t| t["inputSchema"]["properties"].get("account").is_none())
+    );
+
+    let result = rpc(
+        &h.app,
+        "/mcp/work@example.com",
+        "tools/call",
+        json!({ "name": "list_labels", "arguments": { "account": "me@gmail.com" } }),
+    )
+    .await;
+    assert_eq!(result["result"]["isError"], true, "{result}");
+
+    let (status, _) = send(
+        &h.app,
+        authed(
+            "POST",
+            "/mcp/stranger@example.com",
+            Some(json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }
