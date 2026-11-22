@@ -38,7 +38,9 @@ Settings come from the environment, either exported in the shell or in a `.env` 
 | `GMAIL_GATEWAY_PUBLIC_URL` | Address the browser uses; the redirect URI is `${GMAIL_GATEWAY_PUBLIC_URL}/oauth/google/callback`. HTTPS, or `http://localhost:<port>`. Defaults to `http://localhost:47613` under compose. |
 | `GMAIL_GATEWAY_CLIENTS` | `name=token` pairs, comma separated, one per caller. Tokens are at least 32 characters. |
 | `GMAIL_GATEWAY_ENCRYPTION_KEY` | 32 bytes, base64. Seals refresh tokens in `accounts.json`. Losing it means re-linking. |
-| `GMAIL_GATEWAY_DATA_DIR` | Where `accounts.json` lives. Defaults to `/data`. |
+| `GMAIL_GATEWAY_DATA_DIR` | Where `accounts.json` lives inside the container. Defaults to `/data`. |
+| `GMAIL_GATEWAY_HOST_DATA_DIR` | Host folder mounted at `/data` by compose. Defaults to `~/.config/gmail-gateway`. |
+| `GMAIL_GATEWAY_UID`, `GMAIL_GATEWAY_GID` | User compose runs the container as; must own the host folder. Default `1000`. |
 | `GMAIL_GATEWAY_PORT` | Listen port. Defaults to `47613`. |
 | `RUST_LOG` | Log filter. Defaults to `info`. |
 
@@ -47,15 +49,18 @@ Generate tokens and the key with `openssl rand -base64 32`.
 ## Running
 
 ```sh
+mkdir -p -m 700 ~/.config/gmail-gateway
 docker compose up -d --build
 ```
 
-The container listens on `127.0.0.1:47613` and keeps its data in `./data`.
+Create the data folder first: Docker creates a missing one owned by root, and the gateway then
+refuses to start because it cannot write there. The container listens on `127.0.0.1:47613`.
 
 **Locally**, register `http://localhost:47613/oauth/google/callback` on the OAuth client and
 leave `GMAIL_GATEWAY_PUBLIC_URL` unset.
 
-**On a server**, set `GMAIL_GATEWAY_PUBLIC_URL` to the public HTTPS address, add its callback
+**On a server**, set `GMAIL_GATEWAY_PUBLIC_URL` to the public HTTPS address, point
+`GMAIL_GATEWAY_HOST_DATA_DIR` and `GMAIL_GATEWAY_UID`/`GID` at the folder and its owner, add its callback
 to the same OAuth client, and put a reverse proxy in front of port 47613 to terminate TLS. Only
 `/healthz` and the OAuth callback are reachable without a bearer token.
 

@@ -12,7 +12,7 @@ pub enum GatewayError {
     Relink(String),
     #[error("Gmail returned {status}: {message}")]
     Upstream { status: u16, message: String },
-    #[error(transparent)]
+    #[error("{0:#}")]
     Internal(#[from] anyhow::Error),
 }
 

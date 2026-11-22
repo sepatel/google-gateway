@@ -4,6 +4,8 @@ services:
     image: gmail-gateway:latest
     container_name: gmail-gateway
     restart: unless-stopped
+    # Run as the owner of the data folder so the files it writes are theirs.
+    user: "${GMAIL_GATEWAY_UID:-1000}:${GMAIL_GATEWAY_GID:-1000}"
     # Values come from the shell or from a .env file next to this one.
     environment:
       GMAIL_GATEWAY_GOOGLE_CLIENT_ID: ${GMAIL_GATEWAY_GOOGLE_CLIENT_ID:?}
@@ -12,7 +14,8 @@ services:
       GMAIL_GATEWAY_CLIENTS: ${GMAIL_GATEWAY_CLIENTS:?}
       GMAIL_GATEWAY_ENCRYPTION_KEY: ${GMAIL_GATEWAY_ENCRYPTION_KEY:?}
     volumes:
-      - ./data:/data
+      # Create this folder before the first start; Docker would otherwise create it owned by root.
+      - ${GMAIL_GATEWAY_HOST_DATA_DIR:-${HOME}/.config/gmail-gateway}:/data
     ports:
       # Localhost only: locally the browser reaches it directly, and on a server a reverse proxy terminates TLS in front of it.
       - "127.0.0.1:47613:47613"

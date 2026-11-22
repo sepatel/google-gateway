@@ -37,6 +37,20 @@ impl AccountStore {
         tokio::fs::create_dir_all(&data_dir)
             .await
             .with_context(|| format!("cannot create data dir {}", data_dir.display()))?;
+        // Probe now so an unwritable folder fails the start, not a sign-in minutes later.
+        let probe = data_dir.join(".write-test");
+        async {
+            tokio::fs::write(&probe, b"").await?;
+            tokio::fs::remove_file(&probe).await
+        }
+        .await
+        .with_context(|| {
+            format!(
+                "cannot write to {}: make sure the host folder exists and is owned by \
+                     GMAIL_GATEWAY_UID:GMAIL_GATEWAY_GID",
+                data_dir.display()
+            )
+        })?;
         let path = data_dir.join("accounts.json");
         let accounts = match tokio::fs::read(&path).await {
             Ok(bytes) => {
@@ -143,6 +157,22 @@ mod tests {
             !raw.contains("rt-1"),
             "refresh token must not be stored in clear"
         );
+    }
+
+    // Regression: a root-owned bind mount let the gateway start, then failed the first sign-in.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn refuses_to_start_when_the_data_folder_is_not_writable() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o500)).unwrap();
+        let opened = AccountStore::open(dir.path().into(), Cipher::new(&[7; 32])).await;
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let error = format!(
+            "{:#}",
+            opened.err().expect("must refuse an unwritable folder")
+        );
+        assert!(error.contains("cannot write to"), "{error}");
     }
 
     #[tokio::test]
