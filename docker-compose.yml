@@ -1,0 +1,12 @@
+services:
+  gmail-gateway:
+    build: .
+    image: gmail-gateway:latest
+    container_name: gmail-gateway
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data
+    ports:
+      # Keep it on localhost and let the reverse proxy terminate TLS in front of it.
+      - "127.0.0.1:8080:8080"
