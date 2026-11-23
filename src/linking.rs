@@ -84,7 +84,7 @@ pub async fn complete(state: &AppState, link_state: &str, code: &str) -> Gateway
         Some(granted) => granted.split_whitespace().map(str::to_string).collect(),
         None => Service::ALL.iter().map(|s| s.scope().to_string()).collect(),
     };
-    if !scopes.iter().any(|s| s == Service::Gmail.scope()) {
+    if !scopes.iter().any(|s| Service::Gmail.granted_by(s)) {
         return Err(GatewayError::BadRequest(
             "Gmail access was not granted; link again and leave the Gmail permission ticked".into(),
         ));

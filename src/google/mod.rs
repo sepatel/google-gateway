@@ -47,13 +47,19 @@ impl Service {
 
     pub fn scope(self) -> &'static str {
         match self {
-            // Full mailbox access, including permanent delete.
-            Self::Gmail => "https://mail.google.com/",
+            // Everything but permanent deletion, which Google then refuses outright.
+            Self::Gmail => "https://www.googleapis.com/auth/gmail.modify",
             Self::Calendar => "https://www.googleapis.com/auth/calendar.readonly",
             Self::Contacts => "https://www.googleapis.com/auth/contacts.readonly",
             Self::OtherContacts => "https://www.googleapis.com/auth/contacts.other.readonly",
             Self::Directory => "https://www.googleapis.com/auth/directory.readonly",
         }
+    }
+
+    /// Whether a granted scope gives this service.
+    pub fn granted_by(self, scope: &str) -> bool {
+        // Accounts linked before the switch to gmail.modify hold the broader full-access scope.
+        scope == self.scope() || (self == Self::Gmail && scope == "https://mail.google.com/")
     }
 
     pub fn label(self) -> &'static str {

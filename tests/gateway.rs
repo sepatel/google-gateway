@@ -9,7 +9,7 @@ use google_gateway::google::Endpoints;
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
-use wiremock::matchers::{body_string_contains, method, path, query_param};
+use wiremock::matchers::{body_json, body_string_contains, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const TOKEN: &str = "opencode-token-0123456789abcdef0123";
@@ -89,7 +89,7 @@ async fn call_tool(app: &Router, name: &str, arguments: Value) -> Value {
         .clone()
 }
 
-const ALL_SCOPES: &str = "https://mail.google.com/ https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/contacts.other.readonly https://www.googleapis.com/auth/directory.readonly";
+const ALL_SCOPES: &str = "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/contacts.other.readonly https://www.googleapis.com/auth/directory.readonly";
 
 fn refresh_succeeds() -> Mock {
     Mock::given(method("POST"))
@@ -370,4 +370,77 @@ async fn contact_search_merges_sources_keeping_the_saved_contact() {
         "the directory duplicate is dropped"
     );
     assert_eq!(people[0]["source"], "contact");
+}
+
+async fn mount_labels(h: &Harness) {
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/labels"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "labels": [
+            {"id": "INBOX", "name": "INBOX", "type": "system"},
+            {"id": "Label_7", "name": "Receipts/2026", "type": "user"},
+        ]})))
+        .mount(&h.google)
+        .await;
+}
+
+#[tokio::test]
+async fn modify_resolves_label_names_and_reports_each_thread() {
+    let h = harness().await;
+    link(&h, "me@gmail.com").await;
+    refresh_succeeds().mount(&h.google).await;
+    mount_labels(&h).await;
+    Mock::given(method("POST"))
+        .and(path("/gmail/v1/users/me/messages/batchModify"))
+        .and(body_json(json!({
+            "ids": ["m1", "m2"], "addLabelIds": ["Label_7"], "removeLabelIds": ["INBOX"],
+        })))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&h.google)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/gmail/v1/users/me/threads/t1/modify"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "id": "t1" })))
+        .mount(&h.google)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/gmail/v1/users/me/threads/t2/modify"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "error": { "code": 404, "message": "Requested entity was not found." },
+        })))
+        .mount(&h.google)
+        .await;
+
+    let result = call_tool(
+        &h.app,
+        "gmail_modify",
+        json!({
+            "message_ids": ["m1", "m2"],
+            "thread_ids": ["t1", "t2"],
+            "add_labels": ["receipts/2026"],
+            "remove_labels": ["INBOX"],
+        }),
+    )
+    .await;
+    assert_eq!(result["isError"], false, "{result}");
+    let content = &result["structuredContent"];
+    assert_eq!(content["messages"]["succeeded"], 2, "{content}");
+    assert_eq!(content["threads"]["succeeded"], 1);
+    assert_eq!(content["threads"]["failed"][0]["id"], "t2");
+}
+
+#[tokio::test]
+async fn system_labels_cannot_be_deleted() {
+    let h = harness().await;
+    link(&h, "me@gmail.com").await;
+    refresh_succeeds().mount(&h.google).await;
+    mount_labels(&h).await;
+
+    let result = call_tool(&h.app, "gmail_delete_label", json!({ "label": "inbox" })).await;
+    assert_eq!(result["isError"], true);
+    assert!(
+        result["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("system label")
+    );
 }

@@ -53,7 +53,6 @@ pub fn authorize_url(
         .append_pair("redirect_uri", redirect_uri)
         .append_pair("response_type", "code")
         .append_pair("scope", &scopes)
-        .append_pair("include_granted_scopes", "true")
         // Both are needed for Google to issue a refresh token on every link, not just the first.
         .append_pair("access_type", "offline")
         .append_pair("prompt", "consent select_account")

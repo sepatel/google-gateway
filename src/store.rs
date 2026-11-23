@@ -19,7 +19,7 @@ struct StoredAccount {
 
 /// Accounts linked before scopes were recorded only ever asked for Gmail.
 fn scopes_before_tracking() -> Vec<String> {
-    vec![Service::Gmail.scope().to_string()]
+    vec!["https://mail.google.com/".to_string()]
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -37,7 +37,7 @@ pub struct AccountSummary {
 fn services(scopes: &[String]) -> Vec<&'static str> {
     Service::ALL
         .into_iter()
-        .filter(|s| scopes.iter().any(|g| g == s.scope()))
+        .filter(|s| scopes.iter().any(|g| s.granted_by(g)))
         .map(Service::label)
         .collect()
 }
@@ -109,7 +109,7 @@ impl AccountStore {
             .read()
             .await
             .get(&email.to_lowercase())
-            .is_some_and(|a| a.scopes.iter().any(|s| s == service.scope()))
+            .is_some_and(|a| a.scopes.iter().any(|s| service.granted_by(s)))
     }
 
     pub async fn refresh_token(&self, email: &str) -> Result<Option<String>> {

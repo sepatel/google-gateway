@@ -51,6 +51,22 @@ impl GoogleApi {
             .await
     }
 
+    pub async fn patch(
+        &self,
+        account: &str,
+        api: Api,
+        path: &[&str],
+        body: &Value,
+    ) -> GatewayResult<Value> {
+        self.call(account, Method::PATCH, api, path, &[], Some(body))
+            .await
+    }
+
+    pub async fn delete(&self, account: &str, api: Api, path: &[&str]) -> GatewayResult<Value> {
+        self.call(account, Method::DELETE, api, path, &[], None)
+            .await
+    }
+
     pub async fn gmail_address(&self, access_token: &str) -> GatewayResult<String> {
         let profile = self
             .send(
@@ -134,6 +150,10 @@ impl GoogleApi {
                 status: status.as_u16(),
                 message: error_message(&text),
             });
+        }
+        // Some writes (batch modify, deletes) succeed with an empty body.
+        if text.trim().is_empty() {
+            return Ok(Value::Null);
         }
         serde_json::from_str(&text)
             .map_err(|e| GatewayError::Internal(anyhow::anyhow!("Google returned bad JSON: {e}")))

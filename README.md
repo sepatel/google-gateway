@@ -8,7 +8,8 @@ their Gmail, Calendar and Contacts to other tools:
 
 It talks to Google's regular APIs, so it needs no Workspace Developer Preview enrolment, and it
 keeps a refresh token per account, so nothing has to sign in again every hour or every week.
-Gmail has full access; Calendar and Contacts are read-only.
+Gmail can read, label, archive, trash and report spam, but never permanently delete; Calendar
+and Contacts are read-only.
 
 ## Google Cloud setup (once)
 
@@ -22,7 +23,7 @@ Gmail has full access; Calendar and Contacts are read-only.
 
    | Scope | Grants |
    |---|---|
-   | `https://mail.google.com/` | Full mailbox, including permanent delete |
+   | `.../auth/gmail.modify` | Reading, labels, trash and spam; Google refuses permanent deletion |
    | `.../auth/calendar.readonly` | Reading calendars, events and free/busy |
    | `.../auth/contacts.readonly` | Reading saved contacts |
    | `.../auth/contacts.other.readonly` | Reading people Gmail saved automatically |
@@ -132,6 +133,10 @@ account that is not linked answers 404, so the client shows it as failed.
 | `gmail_get_thread` | Every message in a thread with plain-text bodies, oldest first. |
 | `gmail_get_message` | One message with its body and attachment list. |
 | `gmail_list_labels` | Labels and their IDs. |
+| `gmail_modify` | Add or remove labels on messages (up to 1000) or threads (up to 100), by name or ID: archive, read/unread, star. |
+| `gmail_trash`, `gmail_untrash` | Move to or restore from Trash, which Gmail empties after 30 days. |
+| `gmail_mark_spam`, `gmail_mark_not_spam` | Move into or out of Spam. |
+| `gmail_create_label`, `gmail_update_label`, `gmail_delete_label` | Manage user labels; system labels are refused. |
 | `calendar_list_calendars` | Calendars the account can see, with IDs and time zones. |
 | `calendar_list_events` | Events in a time window, recurring events expanded, from now by default. |
 | `calendar_get_event` | One event with its full description and attendees. |
@@ -143,14 +148,16 @@ On `/mcp`, every tool takes an optional `account`, which may be omitted while on
 is linked. Account endpoints fix the account and drop the argument. A tool whose service the
 account did not grant says so and asks for a re-link.
 
+Write tools report how many items succeeded and list each failure with its reason, so one bad
+ID does not hide the rest. A message batch is applied by Gmail to all of its messages or none.
+
 Message bodies are capped at 50,000 characters, and a thread at 100,000, dropping the oldest
 bodies first. Event descriptions are shortened to 500 characters in lists.
 
 ## Roadmap
 
-1. Gmail write tools: labels, archive, trash, permanent delete, read state, drafts.
-2. REST API for Post Office over the same operations.
-3. Gmail push notifications through Pub/Sub, forwarded to Post Office as webhooks.
+1. REST API for Post Office over the same operations.
+2. Gmail push notifications through Pub/Sub, forwarded to Post Office as webhooks.
 
 ## Development
 
