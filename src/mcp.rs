@@ -129,16 +129,18 @@ fn initialize(scope: &Scope, params: &Value) -> Value {
     let (name, instructions) = match scope {
         Scope::All => (
             "google-gateway".to_string(),
-            "Gmail access for every account linked to this gateway. Use search_threads with \
-             Gmail search syntax to find mail, then get_thread or get_message to read it. Pass \
-             `account` when more than one account is linked; list_accounts shows them."
+            "Gmail, Google Calendar and Google Contacts for every account linked to this \
+             gateway. Calendar and Contacts are read-only. Tools are prefixed gmail_, calendar_ \
+             and contacts_. Pass `account` when more than one account is linked; list_accounts \
+             shows each account and the services it granted."
                 .to_string(),
         ),
         Scope::Account(email) => (
             format!("google-gateway:{email}"),
             format!(
-                "Gmail access for {email}. Use search_threads with Gmail search syntax to find \
-                 mail, then get_thread or get_message to read it."
+                "Gmail, Google Calendar and Google Contacts for {email}. Calendar and Contacts \
+                 are read-only. Use gmail_search_threads with Gmail search syntax to find mail, \
+                 calendar_list_events for the schedule, and contacts_search to look people up."
             ),
         ),
     };

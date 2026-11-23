@@ -5,18 +5,17 @@ use reqwest::Client;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use super::{Endpoints, error_message};
+use super::{Endpoints, Service, error_message};
 use crate::config::GoogleClient;
 use crate::error::{GatewayError, GatewayResult};
-
-/// Full mailbox access, including permanent delete.
-pub const SCOPE: &str = "https://mail.google.com/";
 
 #[derive(Debug, Deserialize)]
 pub struct TokenGrant {
     pub access_token: String,
     pub refresh_token: Option<String>,
     pub expires_in: u64,
+    /// Space-separated scopes the user actually granted, which can be fewer than requested.
+    pub scope: Option<String>,
 }
 
 pub enum RefreshError {
@@ -44,11 +43,17 @@ pub fn authorize_url(
 ) -> GatewayResult<String> {
     let mut url = url::Url::parse(&endpoints.authorize)
         .map_err(|e| GatewayError::Internal(anyhow::anyhow!("bad authorize endpoint: {e}")))?;
+    let scopes = Service::ALL
+        .iter()
+        .map(|s| s.scope())
+        .collect::<Vec<_>>()
+        .join(" ");
     url.query_pairs_mut()
         .append_pair("client_id", &client.client_id)
         .append_pair("redirect_uri", redirect_uri)
         .append_pair("response_type", "code")
-        .append_pair("scope", SCOPE)
+        .append_pair("scope", &scopes)
+        .append_pair("include_granted_scopes", "true")
         // Both are needed for Google to issue a refresh token on every link, not just the first.
         .append_pair("access_type", "offline")
         .append_pair("prompt", "consent select_account")

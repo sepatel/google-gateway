@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -17,7 +17,7 @@ use crate::config::AppConfig;
 use crate::crypto::Cipher;
 use crate::error::{GatewayError, GatewayResult};
 use crate::google::Endpoints;
-use crate::google::gmail::Gmail;
+use crate::google::api::GoogleApi;
 use crate::google::tokens::TokenManager;
 use crate::linking::{self, PendingLink};
 use crate::mcp;
@@ -29,7 +29,8 @@ pub struct AppState {
     pub http: reqwest::Client,
     pub store: Arc<AccountStore>,
     pub tokens: Arc<TokenManager>,
-    pub gmail: Gmail,
+    pub google: GoogleApi,
+    pub contacts_warmed: Mutex<HashSet<String>>,
     pub pending_links: Mutex<HashMap<String, PendingLink>>,
 }
 
@@ -50,14 +51,15 @@ impl AppState {
             config.google.clone(),
             store.clone(),
         ));
-        let gmail = Gmail::new(http.clone(), endpoints.clone(), tokens.clone());
+        let google = GoogleApi::new(http.clone(), endpoints.clone(), tokens.clone());
         Ok(Arc::new(Self {
             config,
             endpoints,
             http,
             store,
             tokens,
-            gmail,
+            google,
+            contacts_warmed: Mutex::new(HashSet::new()),
             pending_links: Mutex::new(HashMap::new()),
         }))
     }
@@ -134,11 +136,15 @@ async fn oauth_callback(
         )),
     };
     match outcome {
-        Ok(email) => (
+        Ok(linked) => (
             StatusCode::OK,
             page(
                 "Account linked",
-                &format!("{email} is now linked. You can close this tab."),
+                &format!(
+                    "{} is now linked with access to: {}. You can close this tab.",
+                    linked.email,
+                    linked.services.join(", ")
+                ),
             ),
         ),
         Err(e) => {

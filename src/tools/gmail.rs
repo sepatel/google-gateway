@@ -1,76 +1,22 @@
 use futures::{StreamExt, TryStreamExt};
 use serde::Deserialize;
-use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
+use super::{account_for, run};
 use crate::app::AppState;
 use crate::error::{GatewayError, GatewayResult};
-use crate::linking;
+use crate::google::Service;
+use crate::google::api::Api;
 use crate::mail::{header, render_message};
 
 const MESSAGE_BODY_LIMIT: usize = 50_000;
 const THREAD_BODY_BUDGET: usize = 100_000;
 
-pub enum ToolError {
-    UnknownTool(String),
-    Failed(GatewayError),
-}
-
-impl From<GatewayError> for ToolError {
-    fn from(e: GatewayError) -> Self {
-        Self::Failed(e)
-    }
-}
-
-/// Which accounts an MCP endpoint exposes.
-pub enum Scope {
-    All,
-    Account(String),
-}
-
-const ALL_SCOPE_ONLY: [&str; 2] = ["list_accounts", "link_account"];
-
-pub fn descriptors(scope: &Scope) -> Value {
-    let all = all_descriptors();
-    let Scope::Account(_) = scope else {
-        return all;
-    };
-    let tools = all
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|t| !ALL_SCOPE_ONLY.iter().any(|n| t["name"] == *n))
-        .cloned()
-        .map(|mut t| {
-            if let Some(props) = t["inputSchema"]["properties"].as_object_mut() {
-                props.remove("account");
-            }
-            t
-        })
-        .collect();
-    Value::Array(tools)
-}
-
-fn all_descriptors() -> Value {
-    let account = json!({
-        "type": "string",
-        "description": "Linked account email. Optional when exactly one account is linked."
-    });
-    json!([
-        {
-            "name": "list_accounts",
-            "description": "List the Gmail accounts linked to this gateway.",
-            "inputSchema": {"type": "object", "properties": {}},
-            "annotations": {"readOnlyHint": true},
-        },
-        {
-            "name": "link_account",
-            "description": "Start linking a Gmail account. Returns a Google sign-in URL for the user to open in a browser; it expires after 10 minutes. Also use this to re-link an account whose authorization was revoked.",
-            "inputSchema": {"type": "object", "properties": {}},
-        },
-        {
-            "name": "search_threads",
-            "description": "Search email threads using Gmail search syntax (from:, to:, subject:, label:, is:unread, has:attachment, after:YYYY/MM/DD, before:, newer_than:2d, OR, -term, \"exact phrase\"). Returns thread summaries; use get_thread for full content.",
+pub fn descriptors(account: &Value) -> Vec<Value> {
+    vec![
+        json!({
+            "name": "gmail_search_threads",
+            "description": "Search email threads using Gmail search syntax (from:, to:, subject:, label:, is:unread, has:attachment, after:YYYY/MM/DD, before:, newer_than:2d, OR, -term, \"exact phrase\"). Returns thread summaries; use gmail_get_thread for full content.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -82,10 +28,10 @@ fn all_descriptors() -> Value {
                 "required": ["query"],
             },
             "annotations": {"readOnlyHint": true},
-        },
-        {
-            "name": "get_thread",
-            "description": "Get every message in a thread, oldest first, with plain-text bodies. Bodies of the oldest messages are omitted when a long thread exceeds the size budget.",
+        }),
+        json!({
+            "name": "gmail_get_thread",
+            "description": "Get every message in an email thread, oldest first, with plain-text bodies. Bodies of the oldest messages are omitted when a long thread exceeds the size budget.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -96,10 +42,10 @@ fn all_descriptors() -> Value {
                 "required": ["thread_id"],
             },
             "annotations": {"readOnlyHint": true},
-        },
-        {
-            "name": "get_message",
-            "description": "Get one message with its plain-text body and attachment list.",
+        }),
+        json!({
+            "name": "gmail_get_message",
+            "description": "Get one email message with its plain-text body and attachment list.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -109,93 +55,24 @@ fn all_descriptors() -> Value {
                 "required": ["message_id"],
             },
             "annotations": {"readOnlyHint": true},
-        },
-        {
-            "name": "list_labels",
-            "description": "List the account's labels with their IDs.",
+        }),
+        json!({
+            "name": "gmail_list_labels",
+            "description": "List the mailbox's labels with their IDs.",
             "inputSchema": {"type": "object", "properties": {"account": account}},
             "annotations": {"readOnlyHint": true},
-        },
-    ])
+        }),
+    ]
 }
 
-pub async fn call(
-    state: &AppState,
-    client: &str,
-    scope: &Scope,
-    name: &str,
-    mut args: Value,
-) -> Result<Value, ToolError> {
-    if let Scope::Account(email) = scope {
-        if ALL_SCOPE_ONLY.contains(&name) {
-            return Err(ToolError::UnknownTool(name.to_string()));
-        }
-        let Some(fields) = args.as_object_mut() else {
-            return Err(GatewayError::BadRequest("arguments must be an object".into()).into());
-        };
-        if let Some(requested) = fields.get("account").and_then(Value::as_str)
-            && !requested.eq_ignore_ascii_case(email)
-        {
-            return Err(
-                GatewayError::BadRequest(format!("this endpoint only serves {email}")).into(),
-            );
-        }
-        fields.insert("account".into(), json!(email));
-    }
-    let result = match name {
-        "list_accounts" => Ok(json!({ "accounts": state.store.list().await })),
-        "link_account" => linking::start(state, client).await,
-        "search_threads" => search_threads(state, parse(args)?).await,
-        "get_thread" => get_thread(state, parse(args)?).await,
-        "get_message" => get_message(state, parse(args)?).await,
-        "list_labels" => list_labels(state, parse(args)?).await,
-        other => return Err(ToolError::UnknownTool(other.to_string())),
-    };
-    Ok(result?)
-}
-
-fn parse<T: DeserializeOwned>(args: Value) -> GatewayResult<T> {
-    serde_json::from_value(args)
-        .map_err(|e| GatewayError::BadRequest(format!("bad arguments: {e}")))
-}
-
-async fn resolve_account(state: &AppState, requested: Option<String>) -> GatewayResult<String> {
-    let linked: Vec<String> = state
-        .store
-        .list()
-        .await
-        .into_iter()
-        .map(|a| a.email)
-        .collect();
-    match requested {
-        Some(email) => {
-            let email = email.trim().to_lowercase();
-            if linked.contains(&email) {
-                Ok(email)
-            } else {
-                Err(GatewayError::BadRequest(format!(
-                    "{email} is not linked; linked accounts: {}",
-                    describe(&linked)
-                )))
-            }
-        }
-        None if linked.len() == 1 => Ok(linked[0].clone()),
-        None if linked.is_empty() => Err(GatewayError::BadRequest(
-            "no accounts are linked yet; call link_account first".into(),
-        )),
-        None => Err(GatewayError::BadRequest(format!(
-            "several accounts are linked, pass account as one of: {}",
-            describe(&linked)
-        ))),
-    }
-}
-
-fn describe(accounts: &[String]) -> String {
-    if accounts.is_empty() {
-        "none".into()
-    } else {
-        accounts.join(", ")
-    }
+pub async fn call(state: &AppState, name: &str, args: Value) -> Option<GatewayResult<Value>> {
+    Some(match name {
+        "gmail_search_threads" => run(args, |a| search_threads(state, a)).await,
+        "gmail_get_thread" => run(args, |a| get_thread(state, a)).await,
+        "gmail_get_message" => run(args, |a| get_message(state, a)).await,
+        "gmail_list_labels" => run(args, |a| list_labels(state, a)).await,
+        _ => return None,
+    })
 }
 
 /// Reject IDs that could reshape the request path; Gmail IDs are alphanumeric.
@@ -218,13 +95,16 @@ struct SearchArgs {
 }
 
 async fn search_threads(state: &AppState, args: SearchArgs) -> GatewayResult<Value> {
-    let account = resolve_account(state, args.account).await?;
+    let account = account_for(state, args.account, Service::Gmail).await?;
     let max_results = args.max_results.unwrap_or(20).clamp(1, 50).to_string();
     let mut query = vec![("q", args.query.as_str()), ("maxResults", &max_results)];
     if let Some(token) = args.page_token.as_deref() {
         query.push(("pageToken", token));
     }
-    let list = state.gmail.get(&account, "threads", &query).await?;
+    let list = state
+        .google
+        .get(&account, Api::Gmail, &["users", "me", "threads"], &query)
+        .await?;
 
     let ids: Vec<String> = list["threads"]
         .as_array()
@@ -237,14 +117,18 @@ async fn search_threads(state: &AppState, args: SearchArgs) -> GatewayResult<Val
         .map(|id| {
             let account = &account;
             async move {
-                let path = format!("threads/{}", gmail_id(&id)?);
+                let path = ["users", "me", "threads", gmail_id(&id)?];
                 let metadata = [
                     ("format", "metadata"),
                     ("metadataHeaders", "Subject"),
                     ("metadataHeaders", "From"),
                     ("metadataHeaders", "Date"),
                 ];
-                match state.gmail.get(account, &path, &metadata).await {
+                match state
+                    .google
+                    .get(account, Api::Gmail, &path, &metadata)
+                    .await
+                {
                     Ok(thread) => Ok(Some(summarize_thread(&thread))),
                     // Deleted between the search and the fetch.
                     Err(GatewayError::NotFound(_)) => Ok(None),
@@ -294,11 +178,11 @@ struct ThreadArgs {
 }
 
 async fn get_thread(state: &AppState, args: ThreadArgs) -> GatewayResult<Value> {
-    let account = resolve_account(state, args.account).await?;
-    let path = format!("threads/{}", gmail_id(&args.thread_id)?);
+    let account = account_for(state, args.account, Service::Gmail).await?;
+    let path = ["users", "me", "threads", gmail_id(&args.thread_id)?];
     let thread = state
-        .gmail
-        .get(&account, &path, &[("format", "full")])
+        .google
+        .get(&account, Api::Gmail, &path, &[("format", "full")])
         .await?;
     let messages = thread["messages"].as_array().map_or(&[][..], Vec::as_slice);
     let include_bodies = args.include_bodies.unwrap_or(true);
@@ -339,11 +223,11 @@ struct MessageArgs {
 }
 
 async fn get_message(state: &AppState, args: MessageArgs) -> GatewayResult<Value> {
-    let account = resolve_account(state, args.account).await?;
-    let path = format!("messages/{}", gmail_id(&args.message_id)?);
+    let account = account_for(state, args.account, Service::Gmail).await?;
+    let path = ["users", "me", "messages", gmail_id(&args.message_id)?];
     let message = state
-        .gmail
-        .get(&account, &path, &[("format", "full")])
+        .google
+        .get(&account, Api::Gmail, &path, &[("format", "full")])
         .await?;
     let mut rendered = render_message(&message, Some(MESSAGE_BODY_LIMIT));
     rendered["account"] = json!(account);
@@ -356,8 +240,11 @@ struct LabelsArgs {
 }
 
 async fn list_labels(state: &AppState, args: LabelsArgs) -> GatewayResult<Value> {
-    let account = resolve_account(state, args.account).await?;
-    let response = state.gmail.get(&account, "labels", &[]).await?;
+    let account = account_for(state, args.account, Service::Gmail).await?;
+    let response = state
+        .google
+        .get(&account, Api::Gmail, &["users", "me", "labels"], &[])
+        .await?;
     let mut labels: Vec<Value> = response["labels"]
         .as_array()
         .into_iter()

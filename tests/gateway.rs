@@ -43,6 +43,8 @@ async fn harness() -> Harness {
         authorize: format!("{}/authorize", google.uri()),
         token: format!("{}/token", google.uri()),
         gmail: format!("{}/gmail/v1", google.uri()),
+        calendar: format!("{}/calendar/v3", google.uri()),
+        people: format!("{}/people/v1", google.uri()),
     };
     let state: Arc<AppState> = AppState::new(config, endpoints).await.unwrap();
     Harness {
@@ -87,12 +89,27 @@ async fn call_tool(app: &Router, name: &str, arguments: Value) -> Value {
         .clone()
 }
 
+const ALL_SCOPES: &str = "https://mail.google.com/ https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/contacts.other.readonly https://www.googleapis.com/auth/directory.readonly";
+
+fn refresh_succeeds() -> Mock {
+    Mock::given(method("POST"))
+        .and(path("/token"))
+        .and(body_string_contains("grant_type=refresh_token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": "at-2", "expires_in": 3600,
+        })))
+}
+
 async fn link(h: &Harness, email: &str) {
+    link_granting(h, email, ALL_SCOPES).await;
+}
+
+async fn link_granting(h: &Harness, email: &str, scopes: &str) {
     Mock::given(method("POST"))
         .and(path("/token"))
         .and(body_string_contains("grant_type=authorization_code"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "access_token": "at-1", "refresh_token": "rt-1", "expires_in": 3600,
+            "access_token": "at-1", "refresh_token": "rt-1", "expires_in": 3600, "scope": scopes,
         })))
         .up_to_n_times(1)
         .mount(&h.google)
@@ -199,7 +216,7 @@ async fn links_an_account_and_searches_it_through_mcp() {
 
     let result = call_tool(
         &h.app,
-        "search_threads",
+        "gmail_search_threads",
         json!({ "query": "fedramp newer_than:1d" }),
     )
     .await;
@@ -226,7 +243,7 @@ async fn reports_a_revoked_account_as_needing_relink() {
         .mount(&h.google)
         .await;
 
-    let result = call_tool(&h.app, "list_labels", json!({})).await;
+    let result = call_tool(&h.app, "gmail_list_labels", json!({})).await;
     assert_eq!(result["isError"], true);
     assert!(
         result["content"][0]["text"]
@@ -241,7 +258,12 @@ async fn reports_a_revoked_account_as_needing_relink() {
 async fn refuses_ids_that_would_change_the_gmail_request_path() {
     let h = harness().await;
     link(&h, "me@gmail.com").await;
-    let result = call_tool(&h.app, "get_message", json!({ "message_id": "../labels" })).await;
+    let result = call_tool(
+        &h.app,
+        "gmail_get_message",
+        json!({ "message_id": "../labels" }),
+    )
+    .await;
     assert_eq!(result["isError"], true);
     assert!(
         result["content"][0]["text"]
@@ -270,7 +292,7 @@ async fn an_account_endpoint_only_reaches_its_own_account() {
         &h.app,
         "/mcp/work@example.com",
         "tools/call",
-        json!({ "name": "list_labels", "arguments": { "account": "me@gmail.com" } }),
+        json!({ "name": "gmail_list_labels", "arguments": { "account": "me@gmail.com" } }),
     )
     .await;
     assert_eq!(result["result"]["isError"], true, "{result}");
@@ -285,4 +307,67 @@ async fn an_account_endpoint_only_reaches_its_own_account() {
     )
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_service_the_account_did_not_grant_asks_for_a_relink() {
+    let h = harness().await;
+    link_granting(&h, "me@gmail.com", "https://mail.google.com/").await;
+
+    let result = call_tool(&h.app, "calendar_list_events", json!({})).await;
+    assert_eq!(result["isError"], true);
+    let text = result["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("has not granted calendar"), "{text}");
+}
+
+#[tokio::test]
+async fn contact_search_merges_sources_keeping_the_saved_contact() {
+    let h = harness().await;
+    link(&h, "me@work.example").await;
+    refresh_succeeds().mount(&h.google).await;
+
+    let person = |name: &str, email: &str, resource: &str| {
+        json!({ "resourceName": resource, "names": [{"displayName": name}],
+                "emailAddresses": [{"value": email}] })
+    };
+    Mock::given(method("GET"))
+        .and(path("/people/v1/people:searchContacts"))
+        .and(query_param("query", "ana"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "results": [{ "person": person("Ana (saved)", "Ana@work.example", "people/c1") }],
+        })))
+        .mount(&h.google)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/people/v1/otherContacts:search"))
+        .and(query_param("query", "ana"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "results": [{ "person": person("Ana B", "ana.b@vendor.example", "otherContacts/c2") }],
+        })))
+        .mount(&h.google)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/people/v1/people:searchDirectoryPeople"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "people": [person("Ana Directory", "ana@work.example", "people/123")],
+        })))
+        .mount(&h.google)
+        .await;
+    // The cache warm-up sends empty queries first.
+    Mock::given(method("GET"))
+        .and(query_param("query", ""))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .mount(&h.google)
+        .await;
+
+    let result = call_tool(&h.app, "contacts_search", json!({ "query": "ana" })).await;
+    assert_eq!(result["isError"], false, "{result}");
+    let people = result["structuredContent"]["people"].as_array().unwrap();
+    let names: Vec<&str> = people.iter().map(|p| p["name"].as_str().unwrap()).collect();
+    assert_eq!(
+        names,
+        ["Ana (saved)", "Ana B"],
+        "the directory duplicate is dropped"
+    );
+    assert_eq!(people[0]["source"], "contact");
 }

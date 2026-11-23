@@ -1,4 +1,4 @@
-pub mod gmail;
+pub mod api;
 pub mod oauth;
 pub mod tokens;
 
@@ -10,6 +10,8 @@ pub struct Endpoints {
     pub authorize: String,
     pub token: String,
     pub gmail: String,
+    pub calendar: String,
+    pub people: String,
 }
 
 impl Default for Endpoints {
@@ -18,6 +20,49 @@ impl Default for Endpoints {
             authorize: "https://accounts.google.com/o/oauth2/v2/auth".into(),
             token: "https://oauth2.googleapis.com/token".into(),
             gmail: "https://gmail.googleapis.com/gmail/v1".into(),
+            calendar: "https://www.googleapis.com/calendar/v3".into(),
+            people: "https://people.googleapis.com/v1".into(),
+        }
+    }
+}
+
+/// A Google permission an account can grant, and the scope that carries it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Service {
+    Gmail,
+    Calendar,
+    Contacts,
+    OtherContacts,
+    Directory,
+}
+
+impl Service {
+    pub const ALL: [Self; 5] = [
+        Self::Gmail,
+        Self::Calendar,
+        Self::Contacts,
+        Self::OtherContacts,
+        Self::Directory,
+    ];
+
+    pub fn scope(self) -> &'static str {
+        match self {
+            // Full mailbox access, including permanent delete.
+            Self::Gmail => "https://mail.google.com/",
+            Self::Calendar => "https://www.googleapis.com/auth/calendar.readonly",
+            Self::Contacts => "https://www.googleapis.com/auth/contacts.readonly",
+            Self::OtherContacts => "https://www.googleapis.com/auth/contacts.other.readonly",
+            Self::Directory => "https://www.googleapis.com/auth/directory.readonly",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Gmail => "gmail",
+            Self::Calendar => "calendar",
+            Self::Contacts => "contacts",
+            Self::OtherContacts => "other_contacts",
+            Self::Directory => "directory",
         }
     }
 }

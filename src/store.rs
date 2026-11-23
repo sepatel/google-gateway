@@ -7,11 +7,19 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use crate::crypto::Cipher;
+use crate::google::Service;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredAccount {
     sealed_refresh_token: String,
     linked_at: u64,
+    #[serde(default = "scopes_before_tracking")]
+    scopes: Vec<String>,
+}
+
+/// Accounts linked before scopes were recorded only ever asked for Gmail.
+fn scopes_before_tracking() -> Vec<String> {
+    vec![Service::Gmail.scope().to_string()]
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -23,6 +31,15 @@ struct StoreFile {
 pub struct AccountSummary {
     pub email: String,
     pub linked_at: u64,
+    pub services: Vec<&'static str>,
+}
+
+fn services(scopes: &[String]) -> Vec<&'static str> {
+    Service::ALL
+        .into_iter()
+        .filter(|s| scopes.iter().any(|g| g == s.scope()))
+        .map(Service::label)
+        .collect()
 }
 
 /// Linked Google accounts, keyed by lowercase email, with refresh tokens sealed at rest.
@@ -82,8 +99,17 @@ impl AccountStore {
             .map(|(email, a)| AccountSummary {
                 email: email.clone(),
                 linked_at: a.linked_at,
+                services: services(&a.scopes),
             })
             .collect()
+    }
+
+    pub async fn has_scope(&self, email: &str, service: Service) -> bool {
+        self.accounts
+            .read()
+            .await
+            .get(&email.to_lowercase())
+            .is_some_and(|a| a.scopes.iter().any(|s| s == service.scope()))
     }
 
     pub async fn refresh_token(&self, email: &str) -> Result<Option<String>> {
@@ -94,7 +120,12 @@ impl AccountStore {
             .transpose()
     }
 
-    pub async fn upsert(&self, email: &str, refresh_token: &str) -> Result<()> {
+    pub async fn upsert(
+        &self,
+        email: &str,
+        refresh_token: &str,
+        scopes: Vec<String>,
+    ) -> Result<()> {
         let mut accounts = self.accounts.write().await;
         let linked_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -104,6 +135,7 @@ impl AccountStore {
             StoredAccount {
                 sealed_refresh_token: self.cipher.seal(refresh_token)?,
                 linked_at,
+                scopes,
             },
         );
         self.persist(&accounts).await
@@ -136,6 +168,7 @@ impl AccountStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[tokio::test]
     async fn linked_accounts_survive_a_restart_and_match_case_insensitively() {
@@ -143,7 +176,7 @@ mod tests {
         let store = AccountStore::open(dir.path().into(), Cipher::new(&[7; 32]))
             .await
             .unwrap();
-        store.upsert("Me@Gmail.com", "rt-1").await.unwrap();
+        store.upsert("Me@Gmail.com", "rt-1", vec![]).await.unwrap();
 
         let reopened = AccountStore::open(dir.path().into(), Cipher::new(&[7; 32]))
             .await
@@ -176,12 +209,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn accounts_linked_before_scope_tracking_keep_gmail_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let cipher = Cipher::new(&[7; 32]);
+        let legacy = json!({ "accounts": { "me@gmail.com": {
+            "sealed_refresh_token": cipher.seal("rt-1").unwrap(), "linked_at": 1,
+        }}});
+        std::fs::write(dir.path().join("accounts.json"), legacy.to_string()).unwrap();
+
+        let store = AccountStore::open(dir.path().into(), cipher).await.unwrap();
+        assert!(store.has_scope("me@gmail.com", Service::Gmail).await);
+        assert!(!store.has_scope("me@gmail.com", Service::Calendar).await);
+    }
+
+    #[tokio::test]
     async fn refuses_to_start_with_the_wrong_encryption_key() {
         let dir = tempfile::tempdir().unwrap();
         let store = AccountStore::open(dir.path().into(), Cipher::new(&[7; 32]))
             .await
             .unwrap();
-        store.upsert("me@gmail.com", "rt-1").await.unwrap();
+        store.upsert("me@gmail.com", "rt-1", vec![]).await.unwrap();
         assert!(
             AccountStore::open(dir.path().into(), Cipher::new(&[8; 32]))
                 .await

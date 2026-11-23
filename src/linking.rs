@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 use crate::app::AppState;
 use crate::error::{GatewayError, GatewayResult};
-use crate::google::oauth;
+use crate::google::{Service, oauth};
 
 const LINK_TTL: Duration = Duration::from_secs(600);
 
@@ -44,7 +44,12 @@ pub async fn start(state: &AppState, client: &str) -> GatewayResult<Value> {
     }))
 }
 
-pub async fn complete(state: &AppState, link_state: &str, code: &str) -> GatewayResult<String> {
+pub struct Linked {
+    pub email: String,
+    pub services: Vec<&'static str>,
+}
+
+pub async fn complete(state: &AppState, link_state: &str, code: &str) -> GatewayResult<Linked> {
     let pending = state
         .pending_links
         .lock()
@@ -75,9 +80,27 @@ pub async fn complete(state: &AppState, link_state: &str, code: &str) -> Gateway
         )
     })?;
 
-    let email = state.gmail.profile_email(&grant.access_token).await?;
-    state.store.upsert(&email, &refresh_token).await?;
+    let scopes: Vec<String> = match &grant.scope {
+        Some(granted) => granted.split_whitespace().map(str::to_string).collect(),
+        None => Service::ALL.iter().map(|s| s.scope().to_string()).collect(),
+    };
+    if !scopes.iter().any(|s| s == Service::Gmail.scope()) {
+        return Err(GatewayError::BadRequest(
+            "Gmail access was not granted; link again and leave the Gmail permission ticked".into(),
+        ));
+    }
+
+    let email = state.google.gmail_address(&grant.access_token).await?;
+    state.store.upsert(&email, &refresh_token, scopes).await?;
     state.tokens.invalidate(&email).await;
-    tracing::info!(client = %pending.client, account = %email, "account linked");
-    Ok(email)
+    let services = state
+        .store
+        .list()
+        .await
+        .into_iter()
+        .find(|a| a.email == email)
+        .map(|a| a.services)
+        .unwrap_or_default();
+    tracing::info!(client = %pending.client, account = %email, ?services, "account linked");
+    Ok(Linked { email, services })
 }

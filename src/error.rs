@@ -10,6 +10,13 @@ pub enum GatewayError {
     NotFound(String),
     #[error("{0} must be linked again: its Google authorization was revoked or expired")]
     Relink(String),
+    #[error(
+        "{account} has not granted {service} access; re-link it with link_account and allow {service}"
+    )]
+    MissingScope {
+        account: String,
+        service: &'static str,
+    },
     #[error("Gmail returned {status}: {message}")]
     Upstream { status: u16, message: String },
     #[error("{0:#}")]
@@ -27,7 +34,7 @@ impl IntoResponse for GatewayError {
         let status = match &self {
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
-            Self::Relink(_) => StatusCode::CONFLICT,
+            Self::Relink(_) | Self::MissingScope { .. } => StatusCode::CONFLICT,
             Self::Upstream { .. } => StatusCode::BAD_GATEWAY,
             Self::Internal(e) => {
                 tracing::error!(error = %e, "internal error");
