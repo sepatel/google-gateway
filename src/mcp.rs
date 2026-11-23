@@ -128,14 +128,14 @@ fn initialize(scope: &Scope, params: &Value) -> Value {
         .unwrap_or(SUPPORTED_VERSIONS[0]);
     let (name, instructions) = match scope {
         Scope::All => (
-            "gmail-gateway".to_string(),
+            "google-gateway".to_string(),
             "Gmail access for every account linked to this gateway. Use search_threads with \
              Gmail search syntax to find mail, then get_thread or get_message to read it. Pass \
              `account` when more than one account is linked; list_accounts shows them."
                 .to_string(),
         ),
         Scope::Account(email) => (
-            format!("gmail-gateway:{email}"),
+            format!("google-gateway:{email}"),
             format!(
                 "Gmail access for {email}. Use search_threads with Gmail search syntax to find \
                  mail, then get_thread or get_message to read it."

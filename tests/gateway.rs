@@ -3,9 +3,9 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
-use gmail_gateway::app::{AppState, router};
-use gmail_gateway::config::AppConfig;
-use gmail_gateway::google::Endpoints;
+use google_gateway::app::{AppState, router};
+use google_gateway::config::AppConfig;
+use google_gateway::google::Endpoints;
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
@@ -27,12 +27,12 @@ async fn harness() -> Harness {
     let config = AppConfig::from_lookup(|name| {
         Some(
             match name {
-                "GMAIL_GATEWAY_GOOGLE_CLIENT_ID" => "client-id",
-                "GMAIL_GATEWAY_GOOGLE_CLIENT_SECRET" => "client-secret",
-                "GMAIL_GATEWAY_PUBLIC_URL" => "https://mail.example.com",
-                "GMAIL_GATEWAY_CLIENTS" => "opencode=opencode-token-0123456789abcdef0123",
-                "GMAIL_GATEWAY_ENCRYPTION_KEY" => "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
-                "GMAIL_GATEWAY_DATA_DIR" => data_dir.as_str(),
+                "GOOGLE_GATEWAY_GOOGLE_CLIENT_ID" => "client-id",
+                "GOOGLE_GATEWAY_GOOGLE_CLIENT_SECRET" => "client-secret",
+                "GOOGLE_GATEWAY_PUBLIC_URL" => "https://mail.example.com",
+                "GOOGLE_GATEWAY_CLIENTS" => "opencode=opencode-token-0123456789abcdef0123",
+                "GOOGLE_GATEWAY_ENCRYPTION_KEY" => "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+                "GOOGLE_GATEWAY_DATA_DIR" => data_dir.as_str(),
                 _ => return None,
             }
             .to_string(),

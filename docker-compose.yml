@@ -1,21 +1,21 @@
 services:
-  gmail-gateway:
+  google-gateway:
     build: .
-    image: gmail-gateway:latest
-    container_name: gmail-gateway
+    image: google-gateway:latest
+    container_name: google-gateway
     restart: unless-stopped
     # Run as the owner of the data folder so the files it writes are theirs.
-    user: "${GMAIL_GATEWAY_UID:-1000}:${GMAIL_GATEWAY_GID:-1000}"
+    user: "${GOOGLE_GATEWAY_UID:-1000}:${GOOGLE_GATEWAY_GID:-1000}"
     # Values come from the shell or from a .env file next to this one.
     environment:
-      GMAIL_GATEWAY_GOOGLE_CLIENT_ID: ${GMAIL_GATEWAY_GOOGLE_CLIENT_ID:?}
-      GMAIL_GATEWAY_GOOGLE_CLIENT_SECRET: ${GMAIL_GATEWAY_GOOGLE_CLIENT_SECRET:?}
-      GMAIL_GATEWAY_PUBLIC_URL: ${GMAIL_GATEWAY_PUBLIC_URL:-http://localhost:47613}
-      GMAIL_GATEWAY_CLIENTS: ${GMAIL_GATEWAY_CLIENTS:?}
-      GMAIL_GATEWAY_ENCRYPTION_KEY: ${GMAIL_GATEWAY_ENCRYPTION_KEY:?}
+      GOOGLE_GATEWAY_GOOGLE_CLIENT_ID: ${GOOGLE_GATEWAY_GOOGLE_CLIENT_ID:?}
+      GOOGLE_GATEWAY_GOOGLE_CLIENT_SECRET: ${GOOGLE_GATEWAY_GOOGLE_CLIENT_SECRET:?}
+      GOOGLE_GATEWAY_PUBLIC_URL: ${GOOGLE_GATEWAY_PUBLIC_URL:-http://localhost:47613}
+      GOOGLE_GATEWAY_CLIENTS: ${GOOGLE_GATEWAY_CLIENTS:?}
+      GOOGLE_GATEWAY_ENCRYPTION_KEY: ${GOOGLE_GATEWAY_ENCRYPTION_KEY:?}
     volumes:
       # Create this folder before the first start; Docker would otherwise create it owned by root.
-      - ${GMAIL_GATEWAY_HOST_DATA_DIR:-${HOME}/.config/gmail-gateway}:/data
+      - ${GOOGLE_GATEWAY_HOST_DATA_DIR:-${HOME}/.config/google-gateway}:/data
     ports:
       # Localhost only: locally the browser reaches it directly, and on a server a reverse proxy terminates TLS in front of it.
       - "127.0.0.1:47613:47613"

@@ -1,4 +1,4 @@
-# gmail-gateway
+# google-gateway
 
 One always-on service that holds the Google authorization for your Gmail accounts and
 exposes them to other tools:
@@ -34,14 +34,14 @@ Settings come from the environment, either exported in the shell or in a `.env` 
 
 | Variable | Purpose |
 |---|---|
-| `GMAIL_GATEWAY_GOOGLE_CLIENT_ID`, `GMAIL_GATEWAY_GOOGLE_CLIENT_SECRET` | The Web application client. |
-| `GMAIL_GATEWAY_PUBLIC_URL` | Address the browser uses; the redirect URI is `${GMAIL_GATEWAY_PUBLIC_URL}/oauth/google/callback`. HTTPS, or `http://localhost:<port>`. Defaults to `http://localhost:47613` under compose. |
-| `GMAIL_GATEWAY_CLIENTS` | `name=token` pairs, comma separated, one per caller. Tokens are at least 32 characters. |
-| `GMAIL_GATEWAY_ENCRYPTION_KEY` | 32 bytes, base64. Seals refresh tokens in `accounts.json`. Losing it means re-linking. |
-| `GMAIL_GATEWAY_DATA_DIR` | Where `accounts.json` lives inside the container. Defaults to `/data`. |
-| `GMAIL_GATEWAY_HOST_DATA_DIR` | Host folder mounted at `/data` by compose. Defaults to `~/.config/gmail-gateway`. |
-| `GMAIL_GATEWAY_UID`, `GMAIL_GATEWAY_GID` | User compose runs the container as; must own the host folder. Default `1000`. |
-| `GMAIL_GATEWAY_PORT` | Listen port. Defaults to `47613`. |
+| `GOOGLE_GATEWAY_GOOGLE_CLIENT_ID`, `GOOGLE_GATEWAY_GOOGLE_CLIENT_SECRET` | The Web application client. |
+| `GOOGLE_GATEWAY_PUBLIC_URL` | Address the browser uses; the redirect URI is `${GOOGLE_GATEWAY_PUBLIC_URL}/oauth/google/callback`. HTTPS, or `http://localhost:<port>`. Defaults to `http://localhost:47613` under compose. |
+| `GOOGLE_GATEWAY_CLIENTS` | `name=token` pairs, comma separated, one per caller. Tokens are at least 32 characters. |
+| `GOOGLE_GATEWAY_ENCRYPTION_KEY` | 32 bytes, base64. Seals refresh tokens in `accounts.json`. Losing it means re-linking. |
+| `GOOGLE_GATEWAY_DATA_DIR` | Where `accounts.json` lives inside the container. Defaults to `/data`. |
+| `GOOGLE_GATEWAY_HOST_DATA_DIR` | Host folder mounted at `/data` by compose. Defaults to `~/.config/google-gateway`. |
+| `GOOGLE_GATEWAY_UID`, `GOOGLE_GATEWAY_GID` | User compose runs the container as; must own the host folder. Default `1000`. |
+| `GOOGLE_GATEWAY_PORT` | Listen port. Defaults to `47613`. |
 | `RUST_LOG` | Log filter. Defaults to `info`. |
 
 Generate tokens and the key with `openssl rand -base64 32`.
@@ -49,7 +49,7 @@ Generate tokens and the key with `openssl rand -base64 32`.
 ## Running
 
 ```sh
-mkdir -p -m 700 ~/.config/gmail-gateway
+mkdir -p -m 700 ~/.config/google-gateway
 docker compose up -d --build
 ```
 
@@ -57,10 +57,10 @@ Create the data folder first: Docker creates a missing one owned by root, and th
 refuses to start because it cannot write there. The container listens on `127.0.0.1:47613`.
 
 **Locally**, register `http://localhost:47613/oauth/google/callback` on the OAuth client and
-leave `GMAIL_GATEWAY_PUBLIC_URL` unset.
+leave `GOOGLE_GATEWAY_PUBLIC_URL` unset.
 
-**On a server**, set `GMAIL_GATEWAY_PUBLIC_URL` to the public HTTPS address, point
-`GMAIL_GATEWAY_HOST_DATA_DIR` and `GMAIL_GATEWAY_UID`/`GID` at the folder and its owner, add its callback
+**On a server**, set `GOOGLE_GATEWAY_PUBLIC_URL` to the public HTTPS address, point
+`GOOGLE_GATEWAY_HOST_DATA_DIR` and `GOOGLE_GATEWAY_UID`/`GID` at the folder and its owner, add its callback
 to the same OAuth client, and put a reverse proxy in front of port 47613 to terminate TLS. Only
 `/healthz` and the OAuth callback are reachable without a bearer token.
 
@@ -70,7 +70,7 @@ Ask the gateway for a Google sign-in URL, open it in a browser, and approve acce
 
 ```sh
 curl -s -X POST http://localhost:47613/accounts/link \
-  -H "Authorization: Bearer $GMAIL_GATEWAY_TOKEN"
+  -H "Authorization: Bearer $GOOGLE_GATEWAY_TOKEN"
 ```
 
 From OpenCode you can call the `link_account` tool instead. Repeat for each account (personal,
@@ -78,8 +78,8 @@ work). Linking an account again replaces its stored token, which is also how you
 whose authorization was revoked.
 
 ```sh
-curl -s http://localhost:47613/accounts -H "Authorization: Bearer $GMAIL_GATEWAY_TOKEN"
-curl -s -X DELETE http://localhost:47613/accounts/me@gmail.com -H "Authorization: Bearer $GMAIL_GATEWAY_TOKEN"
+curl -s http://localhost:47613/accounts -H "Authorization: Bearer $GOOGLE_GATEWAY_TOKEN"
+curl -s -X DELETE http://localhost:47613/accounts/me@gmail.com -H "Authorization: Bearer $GOOGLE_GATEWAY_TOKEN"
 ```
 
 ## OpenCode
@@ -96,13 +96,13 @@ the `list_accounts` and `link_account` tools.
         "type": "remote",
         "url": "http://localhost:47613/mcp/me@work.example",
         "oauth": false,
-        "headers": { "Authorization": "Bearer {env:GMAIL_GATEWAY_TOKEN}" }
+        "headers": { "Authorization": "Bearer {env:GOOGLE_GATEWAY_TOKEN}" }
       },
       "gmail-personal": {
         "type": "remote",
         "url": "http://localhost:47613/mcp/me@gmail.com",
         "oauth": false,
-        "headers": { "Authorization": "Bearer {env:GMAIL_GATEWAY_TOKEN}" }
+        "headers": { "Authorization": "Bearer {env:GOOGLE_GATEWAY_TOKEN}" }
       }
     }
   }

@@ -47,7 +47,7 @@ impl AccountStore {
         .with_context(|| {
             format!(
                 "cannot write to {}: make sure the host folder exists and is owned by \
-                     GMAIL_GATEWAY_UID:GMAIL_GATEWAY_GID",
+                     GOOGLE_GATEWAY_UID:GOOGLE_GATEWAY_GID",
                 data_dir.display()
             )
         })?;

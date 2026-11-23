@@ -61,7 +61,7 @@ pub async fn require_client(
             StatusCode::UNAUTHORIZED,
             [(
                 header::WWW_AUTHENTICATE,
-                HeaderValue::from_static("Bearer realm=\"gmail-gateway\""),
+                HeaderValue::from_static("Bearer realm=\"google-gateway\""),
             )],
             "missing or invalid bearer token",
         )

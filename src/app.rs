@@ -182,7 +182,7 @@ pub async fn run() -> Result<()> {
     tracing::info!(
         redirect_uri = %config.redirect_uri(),
         clients = config.clients.len(),
-        "starting gmail-gateway"
+        "starting google-gateway"
     );
     let state = AppState::new(config, Endpoints::default()).await?;
 
